@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"io/ioutil"
 	"net/http"
-	"net/url"
 	"strings"
 
 	"github.com/graphql-go/graphql"
@@ -15,9 +14,8 @@ import (
 )
 
 const (
-	ContentTypeJSON           = "application/json"
-	ContentTypeGraphQL        = "application/graphql"
-	ContentTypeFormURLEncoded = "application/x-www-form-urlencoded"
+	ContentTypeJSON    = "application/json"
+	ContentTypeGraphQL = "application/graphql"
 )
 
 type ResultCallbackFn func(ctx context.Context, params *graphql.Params, result *graphql.Result, responseBody []byte)
@@ -25,7 +23,6 @@ type ResultCallbackFn func(ctx context.Context, params *graphql.Params, result *
 type Handler struct {
 	Schema           *graphql.Schema
 	pretty           bool
-	graphiql         bool
 	playground       bool
 	rootObjectFn     RootObjectFn
 	resultCallbackFn ResultCallbackFn
@@ -45,30 +42,8 @@ type requestOptionsCompatibility struct {
 	OperationName string `json:"operationName" url:"operationName" schema:"operationName"`
 }
 
-func getFromForm(values url.Values) *RequestOptions {
-	query := values.Get("query")
-	if query != "" {
-		// get variables map
-		variables := make(map[string]interface{}, len(values))
-		variablesStr := values.Get("variables")
-		json.Unmarshal([]byte(variablesStr), &variables)
-
-		return &RequestOptions{
-			Query:         query,
-			Variables:     variables,
-			OperationName: values.Get("operationName"),
-		}
-	}
-
-	return nil
-}
-
 // RequestOptions Parses a http.Request into GraphQL request options struct
 func NewRequestOptions(r *http.Request) *RequestOptions {
-	if reqOpt := getFromForm(r.URL.Query()); reqOpt != nil {
-		return reqOpt
-	}
-
 	if r.Method != http.MethodPost {
 		return &RequestOptions{}
 	}
@@ -91,16 +66,6 @@ func NewRequestOptions(r *http.Request) *RequestOptions {
 		return &RequestOptions{
 			Query: string(body),
 		}
-	case ContentTypeFormURLEncoded:
-		if err := r.ParseForm(); err != nil {
-			return &RequestOptions{}
-		}
-
-		if reqOpt := getFromForm(r.PostForm); reqOpt != nil {
-			return reqOpt
-		}
-
-		return &RequestOptions{}
 
 	case ContentTypeJSON:
 		fallthrough
@@ -149,15 +114,6 @@ func (h *Handler) ContextHandler(ctx context.Context, w http.ResponseWriter, r *
 		result.Errors = formatted
 	}
 
-	if h.graphiql {
-		acceptHeader := r.Header.Get("Accept")
-		_, raw := r.URL.Query()["raw"]
-		if !raw && !strings.Contains(acceptHeader, "application/json") && strings.Contains(acceptHeader, "text/html") {
-			renderGraphiQL(w, params)
-			return
-		}
-	}
-
 	if h.playground {
 		acceptHeader := r.Header.Get("Accept")
 		_, raw := r.URL.Query()["raw"]
@@ -199,7 +155,6 @@ type RootObjectFn func(ctx context.Context, r *http.Request) map[string]interfac
 type Config struct {
 	Schema           *graphql.Schema
 	Pretty           bool
-	GraphiQL         bool
 	Playground       bool
 	RootObjectFn     RootObjectFn
 	ResultCallbackFn ResultCallbackFn
@@ -210,7 +165,6 @@ func NewConfig() *Config {
 	return &Config{
 		Schema:     nil,
 		Pretty:     true,
-		GraphiQL:   true,
 		Playground: false,
 	}
 }
@@ -227,7 +181,6 @@ func New(p *Config) *Handler {
 	return &Handler{
 		Schema:           p.Schema,
 		pretty:           p.Pretty,
-		graphiql:         p.GraphiQL,
 		playground:       p.Playground,
 		rootObjectFn:     p.RootObjectFn,
 		resultCallbackFn: p.ResultCallbackFn,
